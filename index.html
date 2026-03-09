@@ -48,13 +48,26 @@
         const playerSpacer = document.getElementById("player-spacer");
         const cpuSpacer = document.getElementById("cpu-spacer");
 
+        let targetScrollTop = 0;
+        let isDragging = false;
+        const smoothFactor = 0.15;
+
+        playerContainer.addEventListener('mousedown', () => isDragging = true);
+        window.addEventListener('mouseup', () => isDragging = false);
+
         window.addEventListener('wheel', (e) => {
-            playerContainer.scrollTop += e.deltaY;
+            ensureAudio();
+            const maxScroll = playerContainer.scrollHeight - playerContainer.clientHeight;
+            targetScrollTop += e.deltaY;
+            targetScrollTop = Math.max(0, Math.min(targetScrollTop, maxScroll));
+            e.preventDefault(); 
         }, { passive: false });
 
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        async function ensureAudio() { if (audioCtx.state === 'suspended') await audioCtx.resume(); }
+
         function playSound(freq, type, duration, vol = 0.1) {
-            if (audioCtx.state === 'suspended') return;
+            if (audioCtx.state !== 'running') return;
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.type = type;
@@ -93,15 +106,11 @@
             ball.x = canvas.width/2;
             ball.y = canvas.height/2;
             predictedY = canvas.height/2;
+            targetScrollTop = playerContainer.scrollTop;
         }
 
         window.addEventListener('resize', init);
         init();
-
-        setInterval(() => {
-            isBlinking = true;
-            setTimeout(() => { isBlinking = false; }, Math.random() * 200 + 100); 
-        }, 3428);
 
         function predictLanding() {
             if (ball.dx >= 0) return; 
@@ -127,6 +136,12 @@
         }
 
         function update() {
+            if (!isDragging) {
+                playerContainer.scrollTop += (targetScrollTop - playerContainer.scrollTop) * smoothFactor;
+            } else {
+                targetScrollTop = playerContainer.scrollTop;
+            }
+
             const maxScroll = playerContainer.scrollHeight - playerContainer.clientHeight;
             const playerScrollPercent = maxScroll > 0 ? (playerContainer.scrollTop / maxScroll) : 0;
             let playerY = playerScrollPercent * (canvas.height - paddleHeight);
@@ -134,17 +149,13 @@
             if (gameState === "PLAYING") {
                 ball.x += ball.dx;
                 ball.y += ball.dy;
-
                 if (ball.y < 0 || ball.y > canvas.height) { ball.dy *= -1; playSound(320, 'sine', 0.1); }
 
                 let ballSpeed = Math.sqrt(ball.dx**2 + ball.dy**2);
-                let scoreDiff = score.player - score.cpu;
-                cpuAccuracy = 0.7 + (scoreDiff * 0.05) - (ballSpeed * 0.05);
-                cpuAccuracy = Math.max(0.3, Math.min(1.0, cpuAccuracy));
+                cpuAccuracy = Math.max(0.3, Math.min(1.0, 0.7 + ((score.player - score.cpu) * 0.05) - (ballSpeed * 0.05)));
 
                 if (ball.x < 0) { score.player++; resetBall('player'); }
                 if (ball.x > canvas.width) { score.cpu++; resetBall('cpu'); }
-
                 if (score.player >= 11 || score.cpu >= 11) gameState = "GAMEOVER";
 
                 if (ball.x < 30 && ball.y > cpuPaddle.y && ball.y < cpuPaddle.y + paddleHeight) {
@@ -158,32 +169,20 @@
                 }
 
                 predictLanding();
-
-                if (!isBlinking) {
-                    let targetY = predictedY - (paddleHeight / 2);
-                    let diff = targetY - cpuPaddle.y;
-                    if (Math.abs(diff) > 8) {
-                        let direction = diff > 0 ? 1 : -1;
-                        cpuPaddle.velocity += direction * cpuPaddle.accel;
-                    } else {
-                        cpuPaddle.velocity *= 0.5;
-                    }
+                if (Math.random() > 0.05) {
+                    let diff = (predictedY - (paddleHeight / 2)) - cpuPaddle.y;
+                    if (Math.abs(diff) > 8) cpuPaddle.velocity += (diff > 0 ? 1 : -1) * cpuPaddle.accel;
+                    else cpuPaddle.velocity *= 0.5;
                 }
-                
                 cpuPaddle.velocity *= cpuPaddle.friction;
-                cpuPaddle.y += cpuPaddle.velocity;
-                cpuPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, cpuPaddle.y));
+                cpuPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, cpuPaddle.y + cpuPaddle.velocity));
                 cpuContainer.scrollTop = (cpuPaddle.y / (canvas.height - paddleHeight)) * maxScroll;
-
             } else if (gameState === "GAMEOVER") {
                 if (playerContainer.scrollTop === 0) resetStep = 1;
                 if (resetStep === 1 && playerContainer.scrollTop >= maxScroll - 5) {
-                    score = { cpu: 0, player: 0 };
-                    gameState = "START";
-                    resetStep = 0;
+                    score = { cpu: 0, player: 0 }; gameState = "START"; resetStep = 0;
                 }
             }
-
             draw(playerY);
             requestAnimationFrame(update);
         }
@@ -192,41 +191,30 @@
             ctx.fillStyle = "black";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            if (gameState === "START") {
-                ctx.fillStyle = "white";
-                ctx.textAlign = "center";
-                ctx.font = "bold 50px Arial";
-                ctx.fillText("SCRONG", canvas.width/2, canvas.height/2 - 40);
-                ctx.font = "18px Arial";
-                ctx.fillText("(SCROLL ANYWHERE TO START)", canvas.width/2, canvas.height/2 + 20);
-                if (playerContainer.scrollTop > 0) {
-                    audioCtx.resume();
-                    gameState = "PLAYING";
-                    playSound(440, 'triangle', 0.3);
-                }
-            } else if (gameState === "GAMEOVER") {
-                ctx.fillStyle = "white";
-                ctx.textAlign = "center";
-                ctx.font = "bold 50px Arial";
-                ctx.fillText(score.player >= 11 ? "YOU WIN" : "CPU WINS", canvas.width/2, canvas.height/2 - 40);
-                ctx.font = "18px Arial";
-                ctx.fillText("SCROLL TOP THEN BOTTOM TO RESTART", canvas.width/2, canvas.height/2 + 20);
-            } else {
-                ctx.font = "bold 80px Arial";
-                ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-                ctx.textAlign = "center";
-                ctx.fillText(`${score.cpu}   ${score.player}`, canvas.width/2, canvas.height/2 + 30);
-                
-                ctx.setLineDash([10, 15]);
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-                ctx.beginPath();
-                ctx.moveTo(canvas.width/2, 0); ctx.lineTo(canvas.width/2, canvas.height); ctx.stroke();
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
 
-                ctx.fillStyle = "#fff";
-                ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2); ctx.fill();
+            if (gameState === "START") {
+                ctx.fillStyle = "white"; ctx.textAlign = "center";
+                ctx.font = "bold 50px Arial"; ctx.fillText("SCRONG", centerX, centerY - 40);
+                ctx.font = "18px Arial"; ctx.fillText("(SCROLL ANYWHERE TO START)", centerX, centerY + 20);
+                if (playerContainer.scrollTop > 0) { ensureAudio(); gameState = "PLAYING"; playSound(440, 'triangle', 0.3); }
+            } else if (gameState === "GAMEOVER") {
+                ctx.fillStyle = "white"; ctx.textAlign = "center";
+                ctx.font = "bold 50px Arial"; ctx.fillText(score.player >= 11 ? "YOU WIN" : "CPU WINS", centerX, centerY - 40);
+                ctx.font = "18px Arial"; ctx.fillText("SCROLL TOP THEN BOTTOM TO RESTART", centerX, centerY + 20);
+            } else {
+                ctx.font = "bold 80px Arial"; ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+                ctx.textAlign = "right";
+                ctx.fillText(`${score.cpu}`, centerX - 40, centerY + 30);
+                ctx.textAlign = "left";
+                ctx.fillText(`${score.player}`, centerX + 40, centerY + 30);
+                
+                ctx.setLineDash([10, 15]); ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+                ctx.beginPath(); ctx.moveTo(centerX, 0); ctx.lineTo(centerX, canvas.height); ctx.stroke();
+                ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2); ctx.fill();
             }
         }
-
         update();
     }
 </script>

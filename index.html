@@ -2,22 +2,11 @@
 <html>
 <head>
     <title>Scrong</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body, html { margin: 0; padding: 0; overflow: hidden; background: #000; color: #fff; font-family: Arial, Helvetica, sans-serif; }
-        
-        #player-scroll { 
-            position: absolute; top: 0; right: 0; 
-            width: 20px; height: 100vh; 
-            overflow-y: scroll; z-index: 10; 
-        }
-
-        #cpu-scroll { 
-            position: absolute; top: 0; left: 0; 
-            width: 20px; height: 100vh; 
-            overflow-y: scroll; z-index: 10;
-            direction: rtl; 
-        }
-        
+        #player-scroll { position: absolute; top: 0; right: 0; width: 20px; height: 100vh; overflow-y: scroll; z-index: 10; }
+        #cpu-scroll { position: absolute; top: 0; left: 0; width: 20px; height: 100vh; overflow-y: scroll; z-index: 10; direction: rtl; }
         .spacer { width: 1px; } 
         #gameCanvas { position: fixed; top: 0; left: 0; pointer-events: none; }
     </style>
@@ -26,7 +15,6 @@
 
 <div id="cpu-scroll"><div class="spacer" id="cpu-spacer"></div></div>
 <div id="player-scroll"><div class="spacer" id="player-spacer"></div></div>
-
 <canvas id="gameCanvas"></canvas>
 
 <script>
@@ -37,13 +25,39 @@
     const playerSpacer = document.getElementById("player-spacer");
     const cpuSpacer = document.getElementById("cpu-spacer");
 
-    window.addEventListener('wheel', (e) => {
-        playerContainer.scrollTop += e.deltaY;
-    }, { passive: false });
-
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    let lastTouchY = 0;
+
+    async function ensureAudio() {
+        if (audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+        }
+    }
+
+    if (isMobile) {
+        window.addEventListener('touchstart', (e) => {
+            ensureAudio();
+            lastTouchY = e.touches[0].clientY;
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (e) => {
+            let touchY = e.touches[0].clientY;
+            let deltaY = lastTouchY - touchY;
+            playerContainer.scrollTop += deltaY * 1.5;
+            lastTouchY = touchY;
+            e.preventDefault();
+        }, { passive: false });
+    } else {
+        window.addEventListener('wheel', (e) => {
+            ensureAudio();
+            playerContainer.scrollTop += e.deltaY;
+        }, { passive: false });
+    }
+
     function playSound(freq, type, duration, vol = 0.1) {
-        if (audioCtx.state === 'suspended') return;
+        if (audioCtx.state !== 'running') return;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = type;
@@ -65,7 +79,6 @@
     let score = { cpu: 0, player: 0 };
     let ball = { x: 0, y: 0, dx: 7, dy: 5, radius: 10 };
     let cpuPaddle = { y: 0, velocity: 0, accel: 1.1, friction: 0.88 };
-    
     let predictedY = 0;
     let isBlinking = false;
     let cpuAccuracy = 0.8;
@@ -123,7 +136,6 @@
         if (gameState === "PLAYING") {
             ball.x += ball.dx;
             ball.y += ball.dy;
-
             if (ball.y < 0 || ball.y > canvas.height) { ball.dy *= -1; playSound(320, 'sine', 0.1); }
 
             let ballSpeed = Math.sqrt(ball.dx**2 + ball.dy**2);
@@ -133,7 +145,6 @@
 
             if (ball.x < 0) { score.player++; resetBall('player'); }
             if (ball.x > canvas.width) { score.cpu++; resetBall('cpu'); }
-
             if (score.player >= 11 || score.cpu >= 11) gameState = "GAMEOVER";
 
             if (ball.x < 30 && ball.y > cpuPaddle.y && ball.y < cpuPaddle.y + paddleHeight) {
@@ -147,7 +158,6 @@
             }
 
             predictLanding();
-
             if (!isBlinking) {
                 let targetY = predictedY - (paddleHeight / 2);
                 let diff = targetY - cpuPaddle.y;
@@ -158,7 +168,6 @@
                     cpuPaddle.velocity *= 0.5;
                 }
             }
-            
             cpuPaddle.velocity *= cpuPaddle.friction;
             cpuPaddle.y += cpuPaddle.velocity;
             cpuPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, cpuPaddle.y));
@@ -180,16 +189,15 @@
     function draw(playerY) {
         ctx.fillStyle = "black";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-
         if (gameState === "START") {
             ctx.fillStyle = "white";
             ctx.textAlign = "center";
             ctx.font = "bold 50px Arial";
             ctx.fillText("SCRONG", canvas.width/2, canvas.height/2 - 40);
             ctx.font = "18px Arial";
-            ctx.fillText("(SCROLL ANYWHERE TO START)", canvas.width/2, canvas.height/2 + 20);
+            ctx.fillText(isMobile ? "(SWIPE TO START)" : "(SCROLL ANYWHERE TO START)", canvas.width/2, canvas.height/2 + 20);
             if (playerContainer.scrollTop > 0) {
-                audioCtx.resume();
+                ensureAudio();
                 gameState = "PLAYING";
                 playSound(440, 'triangle', 0.3);
             }
@@ -199,23 +207,20 @@
             ctx.font = "bold 50px Arial";
             ctx.fillText(score.player >= 11 ? "YOU WIN" : "CPU WINS", canvas.width/2, canvas.height/2 - 40);
             ctx.font = "18px Arial";
-            ctx.fillText("SCROLL TOP THEN BOTTOM TO RESTART", canvas.width/2, canvas.height/2 + 20);
+            ctx.fillText("SCROLL/SWIPE TOP THEN BOTTOM TO RESTART", canvas.width/2, canvas.height/2 + 20);
         } else {
             ctx.font = "bold 80px Arial";
             ctx.fillStyle = "rgba(255, 255, 255, 0.07)";
             ctx.textAlign = "center";
             ctx.fillText(`${score.cpu}   ${score.player}`, canvas.width/2, canvas.height/2 + 30);
-            
             ctx.setLineDash([10, 15]);
             ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
             ctx.beginPath();
             ctx.moveTo(canvas.width/2, 0); ctx.lineTo(canvas.width/2, canvas.height); ctx.stroke();
-
             ctx.fillStyle = "#fff";
             ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2); ctx.fill();
         }
     }
-
     update();
 </script>
 </body>

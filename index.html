@@ -213,12 +213,12 @@
                 ctx.fillText("SCROLL TOP THEN BOTTOM TO RESTART", canvas.width/2, canvas.height/2 + 20);
             } else {
                 ctx.font = "bold 80px Arial";
-                ctx.fillStyle = "rgba(255, 255, 255, 0.07)";
+                ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
                 ctx.textAlign = "center";
                 ctx.fillText(`${score.cpu}   ${score.player}`, canvas.width/2, canvas.height/2 + 30);
                 
                 ctx.setLineDash([10, 15]);
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
                 ctx.beginPath();
                 ctx.moveTo(canvas.width/2, 0); ctx.lineTo(canvas.width/2, canvas.height); ctx.stroke();
 
